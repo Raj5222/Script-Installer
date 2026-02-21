@@ -5,7 +5,7 @@
       "url": "https://raw.githubusercontent.com/raj5222/DB-Restore-Export-Script/main/db-toolkit.sh",
       "install_path": "/usr/local/bin/db-toolkit",
       "description": "Database Import/Export Healper",
-      "dependencies": []
+      "dependencies": ["curl", "mysql-client", "jq"]
     },
     {
       "name": "git-record",
