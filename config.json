@@ -4,12 +4,15 @@
       "name": "db-toolkit",
       "url": "https://raw.githubusercontent.com/raj5222/DB-Restore-Export-Script/main/db-toolkit.sh",
       "install_path": "/usr/local/bin/db-toolkit",
-      "description": "Database Import/Export Healper"
+      "description": "Database Import/Export Healper",
+      "dependencies": []
     },
     {
       "name": "git-record",
       "url": "https://raw.githubusercontent.com/raj5222/Git-Reports-Script/main/git-records.sh",
-      "install_path": "/usr/local/bin/git-record"
+      "install_path": "/usr/local/bin/git-record",
+      "description": "",
+      "dependencies": []
     }
   ]
 }
