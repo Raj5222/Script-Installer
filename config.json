@@ -13,6 +13,20 @@
       "install_path": "/usr/local/bin/git-record",
       "description": "",
       "dependencies": []
+    },
+    {
+      "name": "vacuum",
+      "url": "https://raw.githubusercontent.com/raj5222/Script-Installer/main/vacuum.sh",
+      "install_path": "/usr/local/bin/vacuum",
+      "description": "System Clenup And Optimizer",
+      "dependencies": []
+    },
+    {
+      "name": "scanRepo",
+      "url": "https://raw.githubusercontent.com/raj5222/Script-Installer/main/scanRepo.sh",
+      "install_path": "/usr/local/bin/scanRepo",
+      "description": "Scan JavaScript/Node JS Code Find Memory Related Issues",
+      "dependencies": []
     }
   ]
 }
