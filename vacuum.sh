@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# =============================================================================
-# VACUUM -- Advanced Optimizer with Interactive Deletion Safeguards
-# =============================================================================
 set -euo pipefail
 
 # =============================================================================
@@ -72,7 +69,7 @@ _blank(){ printf "\e[K\n"; }
 
 _hdr() {
     clear; _blank
-    printf "${C_CYN}${C_BLD}  [⚙] VACUUM ${C_RST}${C_CYN}-- System Optimizer${C_RST}\e[K\n"
+    printf "${C_CYN}${C_BLD}  [⚙] VACUUM ${C_RST}${C_CYN}-- Complete System Optimization ${C_RST}\e[K\n"
     _line; _blank
 }
 
@@ -98,9 +95,9 @@ _root() { [[ $EUID -eq 0 ]] || { _err "Root privileges required. Run with sudo."
 _log()  { printf "[%s][%s] %s\n" "$(date +"%F %T")" "$1" "$2" >> "$LOG_FILE" 2>/dev/null || true; }
 
 _ask_confirm() {
-    local target="$1" size="$2"
+    local msg="$1"
     if $V_QUIET || $V_AUTO_YES; then return 0; fi
-    printf "    ${C_YLW}? Remove %s [%s]? (y/N): ${C_RST}" "$target" "$size"
+    printf "    ${C_YLW}? %s (y/N): ${C_RST}" "$msg"
     local ans=""
     read -r ans </dev/tty || true
     if [[ "$ans" =~ ^[Yy]$ ]]; then return 0; else return 1; fi
@@ -119,26 +116,28 @@ _swap_p() { free 2>/dev/null | awk '/^Swap:/ { if ($2>0) printf "%d", $3*100/$2;
 # =============================================================================
 _reap_processes() {
     $V_QUIET || _step "Scanning for memory hogs (> ${REAPER_THRESHOLD}%)"
-    if [[ "${REAPER_ENABLED}" != "true" ]]; then $V_QUIET || _skip; return; fi
-
-    local sys_ram killed_any=false; sys_ram=$(_ram_p)
-    if [[ "$sys_ram" -lt 85 && "$V_AGG" == "false" && "$V_PERF" == "false" ]]; then
+    if [[ "${REAPER_ENABLED}" != "true" && "$V_PERF" != "true" ]]; then 
         $V_QUIET || _skip; return
     fi
 
+    local killed_any=false
     while read -r pid comm mem; do
         if [[ "$comm" =~ ^(systemd|Xorg|wayland|gnome-shell|kwin|plasma|vacuum|sshd|dbus-daemon)$ ]]; then continue; fi
         local over_limit; over_limit=$(awk -v m="$mem" -v t="$REAPER_THRESHOLD" 'BEGIN { print (m > t) ? 1 : 0 }')
         
         if [[ "$over_limit" -eq 1 ]]; then
-            $V_QUIET || printf "\n  ${C_RED}↳ KILLED:${C_RST} %s (PID: %s) using %s%% RAM" "$comm" "$pid" "$mem"
-            _log "REAPER" "Terminated $comm (PID: $pid) for using $mem% RAM."
-            kill -15 "$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
-            killed_any=true
+            if _ask_confirm "Kill process $comm (PID: $pid) using $mem% RAM?"; then
+                $V_QUIET || printf "    ${C_RED}↳ KILLED:${C_RST} %s (PID: %s)\n" "$comm" "$pid"
+                _log "REAPER" "Terminated $comm (PID: $pid) for using $mem% RAM."
+                kill -15 "$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+                killed_any=true
+            else
+                $V_QUIET || printf "    ${C_GRY}↳ Skipped Process: %s${C_RST}\n" "$comm"
+            fi
         fi
     done < <(ps -eo pid,comm,%mem --sort=-%mem | awk 'NR>1 {print $1, $2, $3}' | head -n 10)
 
-    if $killed_any; then $V_QUIET || printf "\n"; else $V_QUIET || _done; fi
+    if $killed_any; then :; else $V_QUIET || _done; fi
 }
 
 _dev_cleanup() {
@@ -161,7 +160,7 @@ _dev_cleanup() {
         for dc in "${dev_caches[@]}"; do
             if [[ -d "$dc" ]]; then
                 local sz=$(du -sh "$dc" 2>/dev/null | cut -f1 || echo "?")
-                if _ask_confirm "$dc" "$sz"; then
+                if _ask_confirm "Remove $dc [$sz]?"; then
                     $V_QUIET || printf "    ${C_GRY}↳ Cleared: %s [%s]${C_RST}\n" "$dc" "$sz"
                     rm -rf "$dc" 2>/dev/null || true
                 else
@@ -177,10 +176,8 @@ _dev_cleanup() {
     
     local stale_nodes=""
     if [[ "$DEV_CACHE_DAYS" -eq 0 ]]; then
-        # 0 days = find all immediately
         stale_nodes=$(find /home ${find_excludes[@]+"${find_excludes[@]}"} -type d -name "node_modules" -prune -print 2>/dev/null || true)
     else
-        # Match age
         stale_nodes=$(find /home ${find_excludes[@]+"${find_excludes[@]}"} -type d -name "node_modules" -mtime +"${DEV_CACHE_DAYS}" -prune -print 2>/dev/null || true)
     fi
     
@@ -189,7 +186,7 @@ _dev_cleanup() {
         while IFS= read -r nd; do
             [[ -z "$nd" ]] && continue
             local sz=$(du -sh "$nd" 2>/dev/null | cut -f1 || echo "?")
-            if _ask_confirm "$nd" "$sz"; then
+            if _ask_confirm "Remove $nd [$sz]?"; then
                 $V_QUIET || printf "    ${C_RED}↳ Nuked:${C_RST} %s ${C_GRY}[%s]${C_RST}\n" "$nd" "$sz"
                 rm -rf "$nd" 2>/dev/null || true
             else
@@ -269,8 +266,11 @@ _cleanup() {
         done
     fi
 
-    if $V_MONITOR_MODE && [[ ${d_before:-0} -lt ${THRESHOLD:-85} ]] && ! $V_AGG && ! $V_DEV && ! $V_PERF; then return 0; fi
-    [[ ${d_before:-0} -ge ${AGGRESSIVE_THRESHOLD:-95} ]] && V_AGG=true || true
+    # Only auto-escalate based on disk IF we are triggered by the background monitor
+    if $V_MONITOR_MODE; then
+        if [[ ${d_before:-0} -lt ${THRESHOLD:-85} ]] && ! $V_AGG && ! $V_DEV && ! $V_PERF; then return 0; fi
+        [[ ${d_before:-0} -ge ${AGGRESSIVE_THRESHOLD:-95} ]] && V_AGG=true || true
+    fi
 
     local mode="Standard"
     $V_AGG && mode="Aggressive"; $V_DEV && mode="Developer"; $V_PERF && mode="Performance Boost"
@@ -284,7 +284,7 @@ _cleanup() {
     $V_QUIET || _step "Clearing package manager caches & orphans"
     if command -v apt-get &>/dev/null; then 
         local apt_sz=$(du -sh /var/cache/apt/archives 2>/dev/null | cut -f1 || echo "?")
-        if _ask_confirm "/var/cache/apt/archives" "$apt_sz"; then
+        if _ask_confirm "Remove /var/cache/apt/archives [$apt_sz]?"; then
             apt-get autoclean -y >/dev/null 2>&1 || true; apt-get autoremove --purge -y >/dev/null 2>&1 || true; apt-get clean >/dev/null 2>&1 || true
             $V_AGG && rm -rf /var/cache/apt/archives/*.deb 2>/dev/null || true
             $V_QUIET || _done
@@ -310,7 +310,7 @@ _cleanup() {
         local c_dir="$h/.cache"; local t_dir="$h/.local/share/Trash"
         if [[ -d "$c_dir" ]]; then
             local c_sz=$(du -sh "$c_dir" 2>/dev/null | cut -f1 || echo "?")
-            if _ask_confirm "$c_dir" "$c_sz"; then
+            if _ask_confirm "Remove $c_dir [$c_sz]?"; then
                 if $V_AGG || [[ "$CACHE_AGE_DAYS" -eq 0 ]]; then 
                     find "$c_dir" -mindepth 1 ${find_excludes[@]+"${find_excludes[@]}"} -exec rm -rf '{}' + 2>/dev/null || true
                 else 
@@ -324,7 +324,7 @@ _cleanup() {
         
         if $V_AGG && [[ -d "$t_dir" ]]; then
             local t_sz=$(du -sh "$t_dir" 2>/dev/null | cut -f1 || echo "?")
-            if _ask_confirm "$t_dir" "$t_sz"; then
+            if _ask_confirm "Empty $t_dir [$t_sz]?"; then
                 rm -rf "$t_dir/files/"* "$t_dir/info/"* 2>/dev/null || true
                 $V_QUIET || printf "    ${C_GRY}↳ Emptied Trash: %s [%s]${C_RST}\n" "$t_dir" "$t_sz"
             else
@@ -349,7 +349,33 @@ _cleanup() {
 }
 
 # =============================================================================
-#  SECTION E -- LIVE FLICKER-FREE DASHBOARD
+#  SECTION E -- RESTORED: STANDALONE MEMORY OPTIMIZER (-m)
+# =============================================================================
+do_ram_optimizer() {
+    _root; _hdr; _section "Standalone Memory Optimizer"
+    
+    printf "  ${C_WHT}%-25s %-20s %s${C_RST}\n" "Memory Subsystem" "Current Target" "Expected Benefit"
+    _line
+    printf "  %-25s %-20s %s\n" "vm.swappiness"      "${SWAPPINESS}"           "Prefers RAM over swap usage"
+    printf "  %-25s %-20s %s\n" "vfs_cache_pressure" "${VFS_CACHE_PRESSURE}"   "Balances inode/dentry vs RAM reclaim"
+    printf "  %-25s %-20s %s\n" "vm.dirty_ratio"     "${DIRTY_RATIO}%"         "Max RAM buffer before forced write-back"
+    printf "  %-25s %-20s %s\n" "vm.dirty_bg_ratio"  "${DIRTY_BG_RATIO}%"      "Background write-back threshold"
+    printf "  %-25s %-20s %s\n" "Swap Flush Limit"   "${SAFE_RAM_PCT}% RAM"    "Protects against Out-Of-Memory events"
+    _blank
+
+    local r_tot r_use r_fre r_pct
+    read -r r_tot r_use r_fre <<< $(free -m | awk '/^Mem:/ {print $2, $3, $4}')
+    r_pct=0; [[ $r_tot -gt 0 ]] && r_pct=$(( r_use * 100 / r_tot ))
+
+    _rich_bar "$r_pct" "RAM" "Used: ${r_use}MB / ${r_tot}MB | Free: ${r_fre}MB"
+    _blank
+    
+    _do_memory_cleanup
+    _blank; _ok "Memory Optimization Complete."
+}
+
+# =============================================================================
+#  SECTION F -- LIVE FLICKER-FREE DASHBOARD
 # =============================================================================
 do_dashboard() {
     _root
@@ -424,7 +450,7 @@ do_dashboard() {
 }
 
 # =============================================================================
-#  SECTION F -- SETTINGS & AUTOMATION HUB
+#  SECTION G -- SETTINGS, AUTOMATION & INSTALLER
 # =============================================================================
 _update_conf() {
     local key="$1" val="$2" conf="/etc/vacuum.conf"
@@ -447,6 +473,34 @@ _prompt_setting() {
     _blank
 }
 
+_reset_conf() {
+    $V_QUIET || _step "Restoring factory defaults"
+    cat > /etc/vacuum.conf <<EOF
+THRESHOLD=$DEFAULT_THRESHOLD
+AGGRESSIVE_THRESHOLD=$DEFAULT_AGGRESSIVE
+LOAD_THRESHOLD=$DEFAULT_LOAD
+MONITOR_INTERVAL=$DEFAULT_INTERVAL
+NOTIFY=$DEFAULT_NOTIFY
+SAFE_RAM_PCT=$DEFAULT_SAFE_RAM_PCT
+JOURNAL_LIMIT=$DEFAULT_JOURNAL_LIMIT
+JOURNAL_DAYS=$DEFAULT_JOURNAL_DAYS
+CACHE_AGE_DAYS=$DEFAULT_CACHE_AGE_DAYS
+DEV_CACHE_DAYS=$DEFAULT_DEV_CACHE_DAYS
+EXCLUDE_USERS="$DEFAULT_EXCLUDE_USERS"
+EXCLUDE_PATHS="$DEFAULT_EXCLUDE_PATHS"
+SWAPPINESS=$DEFAULT_SWAPPINESS
+VFS_CACHE_PRESSURE=$DEFAULT_VFS_CACHE_PRESSURE
+DIRTY_RATIO=$DEFAULT_DIRTY_RATIO
+DIRTY_BG_RATIO=$DEFAULT_DIRTY_BG_RATIO
+REAPER_ENABLED=$DEFAULT_REAPER_ENABLED
+REAPER_THRESHOLD=$DEFAULT_REAPER_THRESHOLD
+EOF
+    source /etc/vacuum.conf
+    $V_QUIET || _done
+    $V_QUIET || _ok "All settings have been reset."
+    sleep 1.5
+}
+
 do_settings() {
     while true; do
         _hdr; _section "Configuration & Behavior Tuning"
@@ -456,6 +510,7 @@ do_settings() {
         printf "  ${C_WHT}[ 4]${C_RST} Developer Limits      ${C_GRY}(node_modules age: %sd)${C_RST}\n" "$DEV_CACHE_DAYS"
         printf "  ${C_WHT}[ 5]${C_RST} Kernel Memory Tuning  ${C_GRY}(Swap: %s, VFS: %s)${C_RST}\n" "$SWAPPINESS" "$VFS_CACHE_PRESSURE"
         printf "  ${C_WHT}[ 6]${C_RST} Protection / Excludes ${C_GRY}(Paths: %s)${C_RST}\n" "${EXCLUDE_PATHS:-None}"
+        printf "  ${C_WHT}[ 7]${C_RST} Factory Reset         ${C_GRY}(Restore all defaults)${C_RST}\n"
         printf "  ${C_WHT}[ 0]${C_RST} Back to Main Menu\n"
         _blank; read -rp "  Select category to edit: " opt; _blank
 
@@ -466,6 +521,7 @@ do_settings() {
             4) _prompt_setting "DEV_CACHE_DAYS" "node_modules Age (Days)" "$DEFAULT_DEV_CACHE_DAYS" "^[0-9]+$" ;;
             5) _prompt_setting "SWAPPINESS" "vm.swappiness (0-100)" "$DEFAULT_SWAPPINESS" "^[0-9]+$"; _prompt_setting "VFS_CACHE_PRESSURE" "vm.vfs_cache_pressure" "$DEFAULT_VFS_CACHE_PRESSURE" "^[0-9]+$" ;;
             6) _prompt_setting "EXCLUDE_PATHS" "Paths to Protect (space separated)" "$DEFAULT_EXCLUDE_PATHS" "" ;;
+            7) _reset_conf ;;
             0) return ;;
             *) _err "Invalid option"; sleep 1 ;;
         esac
@@ -557,8 +613,53 @@ do_daemon() {
     done
 }
 
+do_install() {
+    _root; _hdr; _section "System Integration & Installation"
+    
+    _step "Creating report directories and logs"
+    mkdir -p "$REPORT_DIR" /etc/bash_completion.d; touch "$LOG_FILE"; chmod 640 "$LOG_FILE"
+    _done
+
+    _step "Installing bash tab-completion logic"
+    cat > /etc/bash_completion.d/vacuum <<'EOF'
+complete -W "-i --interactive -r --run -a --aggressive -D --developer -p --perf -m --ram -s --status -y --yes -q --quiet -I --install -h --help" vacuum
+EOF
+    _done
+
+    _step "Writing permanent kernel tuning (sysctl)"
+    cat > /etc/sysctl.d/99-vacuum.conf <<EOF
+# Vacuum -- Permanent Kernel Memory Tuning
+vm.swappiness=$SWAPPINESS
+vm.vfs_cache_pressure=$VFS_CACHE_PRESSURE
+vm.dirty_ratio=$DIRTY_RATIO
+vm.dirty_background_ratio=$DIRTY_BG_RATIO
+EOF
+    sysctl -p /etc/sysctl.d/99-vacuum.conf >/dev/null 2>&1 || true
+    _done
+    
+    _blank; _ok "Vacuum system hooks and configuration installed successfully."; _blank
+}
+
+do_help() {
+    _hdr; _section "Vacuum CLI Reference"
+    printf "  ${C_WHT}%-18s %s${C_RST}\n" "Flag" "Description"
+    _line
+    printf "  %-18s %s\n" "-i, --interactive" "Launch the main TUI menu."
+    printf "  %-18s %s\n" "-r, --run"         "Execute standard system optimization."
+    printf "  %-18s %s\n" "-a, --aggressive"  "Execute aggressive deep clean."
+    printf "  %-18s %s\n" "-D, --developer"   "Execute developer artifact purge."
+    printf "  %-18s %s\n" "-p, --perf"        "Enable Maximum Performance CPU profile."
+    printf "  %-18s %s\n" "-m, --ram"         "Execute standalone memory & swap optimizer."
+    printf "  %-18s %s\n" "-s, --status"      "Launch live telemetry resource dashboard."
+    printf "  %-18s %s\n" "-y, --yes"         "Auto-approve all interactive deletion prompts."
+    printf "  %-18s %s\n" "-q, --quiet"       "Suppress output (used for cron/systemd)."
+    printf "  %-18s %s\n" "-I, --install"     "Install autocomplete and permanent sysctl hooks."
+    printf "  %-18s %s\n" "-h, --help"        "Display this help message."
+    _blank
+}
+
 # =============================================================================
-#  SECTION G -- ROUTING
+#  SECTION H -- ROUTING & MAIN MENU
 # =============================================================================
 do_interactive() {
     while true; do
@@ -566,21 +667,28 @@ do_interactive() {
         printf "  ${C_WHT}[ 1]${C_RST} Execute Standard Optimization\n"
         printf "  ${C_WHT}[ 2]${C_RST} Execute Aggressive Deep Clean\n"
         printf "  ${C_WHT}[ 3]${C_RST} Execute ${C_PRP}Developer Clean${C_RST} ${C_GRY}(Stale Node/DB/Docker)${C_RST}\n"
-        printf "  ${C_WHT}[ 4]${C_RST} Enable ${C_RED}Maximum Performance${C_RST} Profile\n"
-        printf "  ${C_WHT}[ 5]${C_RST} Live Telemetry & Resource Dashboard\n"
-        printf "  ${C_WHT}[ 6]${C_RST} Auto Cleanup & Automation Hub\n"
-        printf "  ${C_WHT}[ 7]${C_RST} Configure Settings & Tuning\n"
+        printf "  ${C_WHT}[ 4]${C_RST} Execute Standalone Memory Optimizer\n"
+        printf "  ${C_WHT}[ 5]${C_RST} Enable ${C_RED}Maximum Performance${C_RST} Profile\n"
+        printf "  ${C_WHT}[ 6]${C_RST} Live Telemetry & Resource Dashboard\n"
+        printf "  ${C_WHT}[ 7]${C_RST} Auto Cleanup & Automation Hub\n"
+        printf "  ${C_WHT}[ 8]${C_RST} Configure Settings & Tuning\n"
+        printf "  ${C_WHT}[ 9]${C_RST} Install System Integration Hooks\n"
         printf "  ${C_WHT}[ 0]${C_RST} Exit\n"
         _blank; read -rp "  Select an option: " opt; _blank
+
+        # Reset flags explicitly on every run
+        V_AGG=false; V_DEV=false; V_PERF=false; V_AUTO_YES=false
 
         case "$opt" in
             1) _root; _cleanup; read -rp "  Press Enter to return..." _ ;;
             2) _root; V_AGG=true; _cleanup; read -rp "  Press Enter to return..." _ ;;
             3) _root; V_DEV=true; _cleanup; read -rp "  Press Enter to return..." _ ;;
-            4) _root; V_PERF=true REAPER_ENABLED=true _cleanup; read -rp "  Press Enter to return..." _ ;;
-            5) do_dashboard ;;
-            6) _root; do_automation ;;
-            7) _root; do_settings ;;
+            4) _root; do_ram_optimizer; read -rp "  Press Enter to return..." _ ;;
+            5) _root; V_PERF=true; REAPER_ENABLED=true; _cleanup; read -rp "  Press Enter to return..." _ ;;
+            6) do_dashboard ;;
+            7) _root; do_automation ;;
+            8) _root; do_settings ;;
+            9) _root; do_install; read -rp "  Press Enter to return..." _ ;;
             0) echo; exit 0 ;;
             *) _err "Invalid selection"; sleep 1 ;;
         esac
@@ -598,8 +706,11 @@ while [[ $# -gt 0 ]]; do
         -D|--developer)   ACTION="dev" ;;
         -p|--perf)        ACTION="perf" ;;
         -s|--status)      ACTION="status" ;;
+        -m|--ram)         ACTION="ram" ;;
         -y|--yes)         V_AUTO_YES=true ;;
         -q|--quiet)       V_QUIET=true ;;
+        -I|--install)     ACTION="install" ;;
+        -h|--help)        ACTION="help" ;;
         --daemon)         ACTION="daemon" ;;
         *) echo "Unknown flag: $1"; exit 1 ;;
     esac; shift
@@ -611,6 +722,9 @@ case "$ACTION" in
     agg)         _root; V_AGG=true; _cleanup ;;
     dev)         _root; V_DEV=true; _cleanup ;;
     perf)        _root; V_PERF=true REAPER_ENABLED=true; _cleanup ;;
+    ram)         _root; do_ram_optimizer ;;
     status)      do_dashboard ;;
+    install)     _root; do_install ;;
+    help)        do_help ;;
     daemon)      _root; do_daemon ;;
 esac
