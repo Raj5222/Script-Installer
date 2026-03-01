@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# VACUUM v8.2 -- Advanced Optimizer with Interactive Deletion Safeguards
+# VACUUM -- Advanced Optimizer with Interactive Deletion Safeguards
 # =============================================================================
 set -euo pipefail
 
@@ -72,7 +72,7 @@ _blank(){ printf "\e[K\n"; }
 
 _hdr() {
     clear; _blank
-    printf "${C_CYN}${C_BLD}  [⚙] VACUUM ${C_RST}${C_CYN}-- System Optimizer & Live Telemetry v8.2${C_RST}\e[K\n"
+    printf "${C_CYN}${C_BLD}  [⚙] VACUUM ${C_RST}${C_CYN}-- System Optimizer${C_RST}\e[K\n"
     _line; _blank
 }
 
