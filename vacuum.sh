@@ -431,9 +431,9 @@ V_AGG=false; V_QUIET=false; V_DRY=false; V_MONITOR_MODE=false
 V_LOCK="/var/lock/vacuum.lock"
 
 _cleanup() {
-    exec 200>"$V_LOCK"
-    flock -n 200 || { _err "Another Vacuum instance is currently running."; exit 1; }
-    trap 'flock -u 200; rm -f "$V_LOCK"' EXIT
+    # exec 200>"$V_LOCK"
+    # flock -n 200 || { _err "Another Vacuum instance is currently running."; exit 1; }
+    # trap 'flock -u 200; rm -f "$V_LOCK"' EXIT
 
     mkdir -p "$REPORT_DIR"
     touch "$LOG_FILE"
