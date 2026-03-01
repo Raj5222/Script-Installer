@@ -4,28 +4,28 @@
       "name": "db-toolkit",
       "url": "https://raw.githubusercontent.com/raj5222/DB-Restore-Export-Script/main/db-toolkit.sh",
       "install_path": "/usr/local/bin/db-toolkit",
-      "description": "Database Import/Export Healper",
+      "description": "A command-line utility for streamlined database import, export, backup, and restore operations with reliable automation and minimal configuration.",
       "dependencies": []
     },
     {
       "name": "git-record",
       "url": "https://raw.githubusercontent.com/raj5222/Git-Reports-Script/main/git-records.sh",
       "install_path": "/usr/local/bin/git-record",
-      "description": "",
+      "description": "A Git reporting and automation tool that generates structured reports across multiple repositories, supports CI/CD workflows, and improves development visibility.",
       "dependencies": []
     },
     {
       "name": "vacuum",
       "url": "https://raw.githubusercontent.com/raj5222/Script-Installer/main/vacuum.sh",
       "install_path": "/usr/local/bin/vacuum",
-      "description": "System Clenup And Optimizer",
+      "description": "A lightweight system cleanup and optimization script that safely removes unnecessary files, clears caches, and enhances overall system performance.",
       "dependencies": []
     },
     {
       "name": "scanRepo",
       "url": "https://raw.githubusercontent.com/raj5222/Script-Installer/main/scanRepo.sh",
       "install_path": "/usr/local/bin/scanRepo",
-      "description": "Scan JavaScript/Node JS Code Find Memory Related Issues",
+      "description": "A repository analysis tool for JavaScript and Node.js projects that identifies potential memory leaks, inefficient patterns, and performance bottlenecks.",
       "dependencies": []
     }
   ]
